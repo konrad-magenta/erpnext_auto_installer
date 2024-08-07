@@ -103,32 +103,85 @@ ask_twice() {
         fi
     done
 }
+
+# Function to generate a random password
+generate_password() {
+    local length=$1
+    local chars='A-Za-z0-9_@#!$%^&*()'
+    local password=$(tr -dc "$chars" < /dev/urandom | head -c "$length")
+    echo "$password"
+}
+
 echo -e "${LIGHT_BLUE}Welcome to the ERPNext Installer...${NC}"
 echo -e "\n"
-sleep 3
+sleep 2
+
+
+# Function to check if a command exists
+# Expects two arguments: the command to check and the package to install if the command is not found
+#check_if_package_installed() {
+#    local cmd=$1
+#    local package=$2
+#    echo -e "${NC}Checking if $cmd is installed...${NC}"
+#    if command -v "$cmd" >/dev/null 2>&1; then
+#        echo -e "${GREEN}$cmd is already installed!${NC}"
+#    else
+#        echo -e "${YELLOW}$cmd is not installed. Installing...${NC}"
+#        # Check if sudo is available and prompt for password if needed
+#        if command -v sudo >/dev/null 2>&1; then
+#            sudo apt update
+#            sudo apt install -y "$package"
+#            echo -e "${GREEN}$cmd has been installed!${NC}"
+#        else
+#            echo -e "${RED}sudo is not available. Please install $package manually.${NC}"
+#            exit 1
+#        fi
+#    fi
+#}
+
+# Check if required packages are installed
+#echo -e "${YELLOW}Checking required packages...${NC}"
+#check_if_package_installed curl curl
+#check_if_package_installed jq jq
+#check_if_package_installed supervisorctl supervisor
+#check_if_package_installed git git
+#echo -e "${NC}Finished checking packages!${NC}"
+#echo -e "\n"
+#sleep 3
 
 # Prompt user for version selection with a preliminary message
-echo -e "${YELLOW}Please enter the number of the corresponding ERPNext version you wish to install:${NC}"
+echo -e "${YELLOW}Please enter the number of the version you wish to use while installing the packages:${NC}"
 
 versions=("Version 13" "Version 14" "Version 15")
 select version_choice in "${versions[@]}"; do
     case $REPLY in
-        1) bench_version="version-13"; break;;
-        2) bench_version="version-14"; break;;
-        3) bench_version="version-15"; break;;
-        *) echo -e "${RED}Invalid option. Please select a valid version.${NC}";;
+        1)
+            bench_version="version-13"
+            break
+            ;;
+        2)
+            bench_version="version-14"
+            break
+            ;;
+        3)
+            bench_version="version-15"
+            break
+            ;;
+        *)
+            echo -e "${RED}Invalid option! Please select a valid version.${NC}"
+            ;;
     esac
 done
 
 # Confirm the version choice with the user
-echo -e "${GREEN}You have selected $version_choice for installation.${NC}"
+echo -e "${GREEN}You have selected $version_choice as the major version for the installation.${NC}"
 echo -e "${LIGHT_BLUE}Do you wish to continue? (yes/no)${NC}"
 read -p "Response: " continue_install
 continue_install=$(echo "$continue_install" | tr '[:upper:]' '[:lower:]')
 
 while [[ "$continue_install" != "yes" && "$continue_install" != "y" && "$continue_install" != "no" && "$continue_install" != "n" ]]; do
     echo -e "${RED}Invalid response. Please answer with 'yes' or 'no'.${NC}"
-    echo -e "${LIGHT_BLUE}Do you wish to continue with the installation of $version_choice? (yes/no)${NC}"
+    echo -e "${LIGHT_BLUE}Do you wish to continue with $version_choice as the major version for the installation? (yes/no)${NC}"
     read -p "Response: " continue_install
     continue_install=$(echo "$continue_install" | tr '[:upper:]' '[:lower:]')
 done
@@ -138,7 +191,7 @@ if [[ "$continue_install" == "no" || "$continue_install" == "n" ]]; then
     echo -e "${RED}Installation aborted by user.${NC}"
     exit 0
 else
-    echo -e "${GREEN}Proceeding with the installation of $version_choice.${NC}"
+    echo -e "${GREEN}Proceeding with the installation using $version_choice as the major version.${NC}"
 fi
 sleep 2
 
@@ -177,25 +230,50 @@ cd $(sudo -u $USER echo $HOME)
 # Next let's set some important parameters.
 # We will need your required SQL root passwords
 echo -e "${YELLOW}Now let's set some important parameters...${NC}"
-sleep 1
-echo -e "${YELLOW}We will need your required SQL root password${NC}"
-sleep 1
-sqlpasswrd=$(ask_twice "What is your required SQL root password" "true")
-sleep 1
 echo -e "\n"
+sleep 1
+
+echo -e "${YELLOW}A root SQL password is required for the installation.${NC}"
+echo -e "${LIGHT_BLUE}Do you want to specify an SQL password or generate one?${NC}"
+echo -e "${LIGHT_BLUE}1) Specify a password${NC}"
+echo -e "${LIGHT_BLUE}2) Generate a password${NC}"
+
+while true; do
+    # Prompt user for choice
+    read -p "${LIGHT_BLUE}Please select an option (1 or 2): ${NC}" sqlpasswdchoice
+
+    case $sqlpasswdchoice in
+        1)
+            sqlpasswrd=$(ask_twice "Please enter a strong SQL root password" "true")
+            echo -e "${GREEN}SQL root password set with user specified password!${NC}"
+            break
+            ;;
+        2)
+            sqlpasswrd=$(generate_password 16)  # Generate a password of length 16
+            echo -e "${GREEN}SQL root password set with generated password:${NC} $sqlpasswrd${NC}"
+            break
+            ;;
+        *)
+            echo -e "${RED}Invalid option selected!${NC}"
+            echo -e "\n"
+            ;;
+    esac
+done
+echo -e "\n"
+sleep 1
 
 # Now let's make sure your instance has the most updated packages
 echo -e "${YELLOW}Updating system packages...${NC}"
 sleep 2
 sudo apt update
 sudo apt upgrade -y
-echo -e "${GREEN}System packages updated.${NC}"
+echo -e "${GREEN}System packages updated!${NC}"
 sleep 2
 
-# Now let's install a couple of requirements: git, curl and pip
-echo -e "${YELLOW}Installing preliminary package requirements${NC}"
+# Now let's install a couple of requirements: git, curl and pip + jq and supervisor
+echo -e "${YELLOW}Installing preliminary package requirements...${NC}"
 sleep 3
-sudo apt install software-properties-common git curl -y
+sudo apt install software-properties-common git curl jq supervisor -y
 
 # Next we'll install the python environment manager...
 echo -e "${YELLOW}Installing python environment manager and other requirements...${NC}"
@@ -208,7 +286,7 @@ py_minor=$(echo "$py_version" | cut -d '.' -f 2)
 
 if [ -z "$py_version" ] || [ "$py_major" -lt 3 ] || [ "$py_major" -eq 3 -a "$py_minor" -lt 10 ]; then
     echo -e "${LIGHT_BLUE}It appears this instance does not meet the minimum Python version required for ERPNext 14 (Python3.10)...${NC}"
-    sleep 2 
+    sleep 2
     echo -e "${YELLOW}Not to worry, we will sort it out for you${NC}"
     sleep 4
     echo -e "${YELLOW}Installing Python 3.10+...${NC}"
@@ -229,7 +307,7 @@ if [ -z "$py_version" ] || [ "$py_major" -lt 3 ] || [ "$py_major" -eq 3 -a "$py_
     sleep 2
 fi
 echo -e "\n"
-echo -e "${YELLOW}Installing additional Python packages and Redis Server${NC}"
+echo -e "${YELLOW}Installing additional Python packages and Redis Server...${NC}"
 sleep 2
 sudo apt install git python3-dev python3-setuptools python3-venv python3-pip redis-server -y && \
 
@@ -255,7 +333,7 @@ echo -e "${GREEN}Done!${NC}"
 sleep 1
 echo -e "\n"
 #... And mariadb with some extra needed applications.
-echo -e "${YELLOW}Now installing MariaDB and other necessary packages...${NC}"
+echo -e "${YELLOW}Installing MariaDB and other necessary packages...${NC}"
 sleep 2
 sudo apt install mariadb-server mariadb-client -y
 echo -e "${GREEN}MariaDB and other packages have been installed successfully.${NC}"
@@ -275,7 +353,7 @@ if [ ! -f "$MARKER_FILE" ]; then
     sudo mysql -u root -p"$sqlpasswrd" -e "DROP DATABASE IF EXISTS test;DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';"
     sudo mysql -u root -p"$sqlpasswrd" -e "FLUSH PRIVILEGES;"
 
-    echo -e "${YELLOW}...And add some settings to /etc/mysql/my.cnf:${NC}"
+    echo -e "${YELLOW}Adding SQL Settings to /etc/mysql/my.cnf:${NC}"
     sleep 2
 
     sudo bash -c 'cat << EOF >> /etc/mysql/my.cnf
@@ -298,7 +376,7 @@ EOF'
 fi
 
 # Install NVM, Node, npm and yarn
-echo -e ${YELLOW}"Now to install NVM, Node, npm and yarn${NC}"
+echo -e ${YELLOW}"Installing NVM, Node, npm and yarn...${NC}"
 sleep 2
 curl https://raw.githubusercontent.com/creationix/nvm/master/install.sh | bash
 
@@ -332,7 +410,7 @@ if [ -z "$py_version" ] || [ "$py_major" -lt 3 ] || [ "$py_major" -eq 3 -a "$py_
 fi
 
 # Install bench
-echo -e "${YELLOW}Now let's install bench${NC}"
+echo -e "${YELLOW}Installing bench...${NC}"
 sleep 2
 
 # Check if EXTERNALLY-MANAGED file exists and remove it
@@ -353,13 +431,40 @@ echo -e "${GREEN}Bench installation complete!${NC}"
 sleep 1
 
 # Prompt user for site name
-echo -e "${YELLOW}Preparing for Production installation. This could take a minute... or two so please be patient.${NC}"
-read -p "Enter the site name (If you wish to install SSL later, please enter a FQDN): " site_name
+echo -e "${YELLOW}Preparing for Production installation.${NC}"
+read -p "${LIGHT_BLUE}Enter the site name (If you wish to install SSL later, please enter a FQDN such as erp.domain.com): ${NC}" site_name
 sleep 1
-adminpasswrd=$(ask_twice "Enter the Administrator password" "true")
+
+echo -e "${YELLOW}We need to set an Administrator password that will be used to login the first time.${NC}"
+echo -e "${LIGHT_BLUE}Do you want to set your own password or generate one?${NC}"
+echo -e "${LIGHT_BLUE}1) Set a password${NC}"
+echo -e "${LIGHT_BLUE}2) Generate a password${NC}"
+
+while true; do
+    # Prompt user for choice
+    read -p "${LIGHT_BLUE}Please select an option (1 or 2): ${NC}" adminpasswdchoice
+
+    case $adminpasswdchoice in
+        1)
+            adminpasswrd=$(ask_twice "Please enter a strong Administrator password" "true")
+            echo -e "${GREEN}Administrator password set with user specified password!${NC}"
+            break
+            ;;
+        2)
+            adminpasswrd=$(generate_password 10)  # Generate a password of length 10
+            echo -e "${GREEN}Administrator password set with generated password:${NC} $adminpasswrd${NC}"
+            break
+            ;;
+        *)
+            echo -e "${RED}Invalid option selected!${NC}"
+            echo -e "\n"
+            ;;
+    esac
+done
 echo -e "\n"
 sleep 2
-echo -e "${YELLOW}Now setting up your site. This might take a few minutes. Please wait...${NC}"
+
+echo -e "${YELLOW}Setting up your site. This might take a few minutes. Please wait...${NC}"
 sleep 1
 # Change directory to frappe-bench
 cd frappe-bench && \
@@ -368,19 +473,56 @@ sudo chmod -R o+rx /home/$(echo $USER)
 
 bench new-site $site_name --db-root-password $sqlpasswrd --admin-password $adminpasswrd
 
-# Prompt user to confirm if they want to install ERPNext
+# Fetch ERPNext releases from GitHub based on selected bench_version
+fetch_erpnext_releases() {
+    local bench_version="$1"
+    local releases_url="https://api.github.com/repos/frappe/erpnext/releases"
 
+    # Fetch release data and filter by bench_version
+    local release_data=$(curl -s "$releases_url")
+    local release_versions=$(echo "$release_data" | jq -r --arg rversion "$bench_version" '.[] | select(.target_commitish == $rversion) | .name' | sort -V -r)
+
+    echo -e "${YELLOW}Available ERPNext releases for major $bench_version:${NC}"
+    local i=1
+    declare -A rversions
+    for rversion in $release_versions; do
+        echo "$i) $rversion"
+        rversions["$i"]=$rversion
+        ((i++))
+    done
+
+    echo -e "${LIGHT_BLUE}Please select the ERPNext release version you want to install:${NC}"
+    select rversion_choice in "${rversions[@]}"; do
+        if [[ -n "${rversions[$REPLY]}" ]]; then
+            erpnext_release_version="${rversions[$REPLY]}"
+            break
+        else
+            echo -e "${RED}Invalid option! Please select a valid release version.${NC}"
+        fi
+    done
+}
+
+# Prompt user to confirm if they want to install ERPNext
 echo -e "${LIGHT_BLUE}Would you like to install ERPNext? (yes/no)${NC}"
-read -p "Response: " erpnext_install
+read -p "${LIGHT_BLUE}Response:${NC} " erpnext_install
 erpnext_install=$(echo "$erpnext_install" | tr '[:upper:]' '[:lower:]')
-case "$erpnext_install" in
-    "yes" | "y")
-    sleep 2
-    # Setup supervisor and nginx config
-    bench get-app erpnext --branch $bench_version && \
-    bench --site $site_name install-app erpnext
+
+echo -e "\n";
+if [[ "$erpnext_install" == "yes" || "$erpnext_install" == "y" ]]; then
+    fetch_erpnext_releases "$bench_version"
+    echo -e "\n"
+    echo -e "${YELLOW}ERPNext $erpnext_release_version selected!${NC}"
     sleep 1
-esac
+
+    echo -e "${YELLOW}Downloading Payments $bench_version...${NC}"
+    bench get-app payments --branch $bench_version
+
+    echo -e "${YELLOW}Installing ERPNext $erpnext_release_version...${NC}"
+    bench get-app erpnext --branch $erpnext_release_version && \
+    bench --site "$site_name" install-app erpnext
+    echo -e "${GREEN}ERPNext $erpnext_release_version installed successfully!${NC}"
+    sleep 1
+fi
 
 # Dynamically set the Python version for the playbook file path
 python_version=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
@@ -388,7 +530,7 @@ playbook_file="/usr/local/lib/python${python_version}/dist-packages/bench/playbo
 sudo sed -i 's/- include: /- include_tasks: /g' $playbook_file
 
 echo -e "${LIGHT_BLUE}Would you like to continue with production install? (yes/no)${NC}"
-read -p "Response: " continue_prod
+read -p "${LIGHT_BLUE}Response:${NC} " continue_prod
 continue_prod=$(echo "$continue_prod" | tr '[:upper:]' '[:lower:]')
 case "$continue_prod" in
     "yes" | "y")
@@ -421,12 +563,16 @@ case "$continue_prod" in
 
     # Setup production again to reflect the new site
     yes | sudo bench setup production $USER && \
+    echo -e "${GREEN}Production setup complete!${NC}"
+    sleep 1
 
     echo -e "${YELLOW}Enabling Scheduler...${NC}"
     sleep 1
     # Enable and resume the scheduler for the site
     bench --site $site_name scheduler enable && \
     bench --site $site_name scheduler resume && \
+    echo -e "${GREEN}Scheduler enabled!${NC}"
+
     if [[ "$bench_version" == "version-15" ]]; then
         echo -e "${YELLOW}Setting up Socketio, Redis and Supervisor...${NC}"
         sleep 1
@@ -434,8 +580,9 @@ case "$continue_prod" in
         yes | bench setup supervisor
         bench setup redis
         sudo supervisorctl reload
+        echo -e "${GREEN}Socketio, Redis and Supervisor setup complete!${NC}"
     fi
-    echo -e "${YELLOW}Restarting bench to apply all changes and optimizing environment pernissions.${NC}"
+    echo -e "${YELLOW}Restarting bench to apply all changes and optimizing environment permissions.${NC}"
     sleep 1
 
 
@@ -447,29 +594,71 @@ case "$continue_prod" in
     printf "${NC}\n"
     sleep 3
 
-    echo -e "${LIGHT_BLUE}Would you like to install HRMS? (yes/no)${NC}"
-    read -p "Response: " hrms_install
-    hrms_install=$(echo "$hrms_install" | tr '[:upper:]' '[:lower:]')
-    case "$hrms_install" in
-        "yes" | "y")
-        sleep 2
-        # Setup supervisor and nginx config
-        bench get-app hrms --branch $bench_version && \
-        bench --site $site_name install-app hrms
-        sleep 1
-    esac
+    # HRMS Releases
+    fetch_hrms_releases() {
+        local bench_version="$1"
+        local releases_url="https://api.github.com/repos/frappe/hrms/releases"
+
+        # Fetch release data and filter by bench_version
+        local release_data=$(curl -s "$releases_url")
+        local release_versions=$(echo "$release_data" | jq -r --arg hversion "$bench_version" '.[] | select(.target_commitish == $hversion) | .name' | sort -V -r)
+
+        echo -e "${YELLOW}Available HRMS releases for major $bench_version:${NC}"
+        local i=1
+        declare -A hversions
+        for hversion in $release_versions; do
+            echo "$i) $hversion"
+            hversions["$i"]=$hversion
+            ((i++))
+        done
+
+        echo -e "${LIGHT_BLUE}Please select the HRMS release version you want to install:${NC}"
+        select hversion_choice in "${hversions[@]}"; do
+            if [[ -n "${hversions[$REPLY]}" ]]; then
+                hrms_release_version="${hversions[$REPLY]}"
+                break
+            else
+                echo -e "${RED}Invalid option! Please select a valid release version.${NC}"
+            fi
+        done
+    }
+
+    if [[ "$bench_version" == "version-13" ]]; then
+        echo -e "${NC}HRMS is not supported for major versions 13 or lower. Skipping HRMS installation...${NC}"
+    else
+        echo -e "${LIGHT_BLUE}Would you like to install HRMS? (yes/no)${NC}"
+        read -p "${LIGHT_BLUE}Response:${NC} " hrms_install
+        hrms_install=$(echo "$hrms_install" | tr '[:upper:]' '[:lower:]')
+        if [[ "$hrms_install" == "yes" || "$hrms_install" == "y" ]]; then
+            sleep 2
+            # Fetch and select HRMS release version based on bench_version
+            fetch_hrms_releases "$bench_version"
+            echo -e "\n"
+            echo -e "${YELLOW}HRMS $hrms_release_version selected!${NC}"
+            sleep 1
+
+            # Download and install HRMS
+            echo -e "${YELLOW}Installing HRMS $hrms_release_version...${NC}"
+            bench get-app hrms --branch $hrms_release_version && \
+            bench --site $site_name install-app hrms
+            echo -e "${GREEN}HRMS $hrms_release_version installed successfully!${NC}"
+            sleep 2
+        else
+            echo -e "${YELLOW}Skipping HRMS installation...${NC}"
+            sleep 1
+        fi
+    fi
 
     echo -e "${YELLOW}Would you like to install SSL? (yes/no)${NC}"
-
     read -p "Response: " continue_ssl
     continue_ssl=$(echo "$continue_ssl" | tr '[:upper:]' '[:lower:]')
 
     case "$continue_ssl" in
         "yes" | "y")
-            echo -e "${YELLOW}Make sure your domain name is pointed to the IP of this instance and is reachable before your proceed.${NC}"
+            echo -e "${LIGHT_BLUE}Make sure your domain name is pointed to the IP of this instance and is reachable before your proceed.${NC}"
             sleep 3
             # Prompt user for email
-            read -p "Enter your email address: " email_address
+            read -p "${LIGHT_BLUE}Enter your email address:${NC} " email_address
 
             # Install Certbot
             echo -e "${YELLOW}Installing Certbot...${NC}"
@@ -479,21 +668,22 @@ case "$continue_prod" in
                 sleep 4
                 sudo pip3 uninstall cryptography -y
                 yes | sudo pip3 install pyopenssl==22.0.0 cryptography==36.0.0
-                echo -e "${GREEN}Package fixed${NC}"
+                echo -e "${GREEN}Package fixed!${NC}"
                 sleep 2
             fi
+
             # Install Certbot Classic
             sudo apt install snapd -y && \
             sudo snap install core && \
             sudo snap refresh core && \
             sudo snap install --classic certbot && \
             sudo ln -s /snap/bin/certbot /usr/bin/certbot
-            
+
             # Obtain and Install the certificate
             echo -e "${YELLOW}Obtaining and installing SSL certificate...${NC}"
             sleep 2
             sudo certbot --nginx --non-interactive --agree-tos --email $email_address -d $site_name
-            echo -e "${GREEN}SSL certificate installed successfully.${NC}"
+            echo -e "${GREEN}SSL certificate installed successfully!${NC}"
             sleep 2
             ;;
         *)
@@ -508,7 +698,7 @@ case "$continue_prod" in
     fi
 
     echo -e "${GREEN}--------------------------------------------------------------------------------"
-    echo -e "Congratulations! You have successfully installed ERPNext $version_choice."
+    echo -e "Congratulations! You have successfully installed ERPNext $erpnext_release_version"
     echo -e "You can start using your new ERPNext installation by visiting https://$site_name"
     echo -e "(if you have enabled SSL and used a Fully Qualified Domain Name"
     echo -e "during installation) or http://$server_ip to begin."
@@ -516,8 +706,8 @@ case "$continue_prod" in
     echo -e "Enjoy using ERPNext!"
     echo -e "--------------------------------------------------------------------------------${NC}"
         ;;
-    *)
 
+    *)
     echo -e "${YELLOW}Getting your site ready for development...${NC}"
     sleep 2
     source ~/.profile
@@ -532,7 +722,7 @@ case "$continue_prod" in
     sleep 5
 
     echo -e "${GREEN}-----------------------------------------------------------------------------------------------"
-    echo -e "Congratulations! You have successfully installed Frappe and ERPNext $version_choice Development Environment."
+    echo -e "Congratulations! You have successfully installed Frappe and ERPNext $erpnext_release_version Development Environment."
     echo -e "Start your instance by running bench start to start your server and visiting http://$server_ip:8000"
     echo -e "Install additional apps as required. Visit https://frappeframework.com for Developer Documentation."
     echo -e "Enjoy development with Frappe!"
